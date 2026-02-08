@@ -1,0 +1,177 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: fraud_pg
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - fraudnet
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: fraud_zk
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - fraudnet
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: fraud_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fraudnet
+
+
+  spark:
+    image: apache/spark:3.5.0
+    container_name: fraud_spark
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.master.Master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+    networks:
+      - fraudnet
+    volumes:
+      - ./apps:/opt/spark-apps
+      - ./data:/opt/spark-data
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: fraud_spark_worker
+    user: root
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark:7077
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark:7077
+    depends_on:
+      - spark
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./apps:/opt/spark-apps
+      - ./data:/opt/spark-data
+      - ./app/ml:/opt/models
+    networks:
+      - fraudnet  
+
+  app:
+    build: .
+    container_name: fraud_api
+    command: ["./start_api.sh"]
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=admin
+      - DB_NAME=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=transactions
+      - MODEL_PATH=/app/ml/fraud_detection_pipeline.pkl
+      - FRAUD_THRESHOLD=0.5
+      - API_V1_PREFIX=/api/v1
+      - PROJECT_NAME=Fraud Detection API
+      - DEBUG=True
+    depends_on:
+      - postgres
+      - kafka
+      - spark
+    networks:
+      - fraudnet
+  
+  spark-streaming:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: fraud_spark_streaming
+    user: root
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      spark:
+        condition: service_started
+    restart: on-failure
+    volumes:
+      - ./spark:/opt/spark-apps
+      - ./app/ml:/opt/models
+      - spark-ivy-cache:/home/spark/.ivy2
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=transactions
+      - DB_URL=jdbc:postgresql://postgres:5432/postgres
+      - DB_USER=admin
+      - DB_PASSWORD=admin
+      - MODEL_PATH=/opt/models/fraud_detection_pipeline.pkl
+      - FRAUD_THRESHOLD=0.5
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark:7077
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.1
+      /opt/spark-apps/background_threat_service.py
+    networks:
+      - fraudnet
+
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    container_name: fraud_producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - fraudnet
+
+volumes:
+  pgdata:
+  spark-ivy-cache:
+
+networks:
+  fraudnet:
+    driver: bridge
