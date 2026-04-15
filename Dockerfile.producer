@@ -2,10 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install only kafka-python for the producer
-RUN pip install --no-cache-dir kafka-python==2.0.2
+RUN pip install --no-cache-dir confluent-kafka
 
-# Copy only the kafka directory
-COPY kafka/ ./kafka/
+COPY streaming/producer.py .
 
-CMD ["python", "kafka/producer.py"]
+CMD ["python", "producer.py"]

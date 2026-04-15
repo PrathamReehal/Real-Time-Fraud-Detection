@@ -25,6 +25,3 @@ CREATE TABLE alerts (
     probability FLOAT,
     timestamp TIMESTAMP
 );
-
-GRANT ALL PRIVILEGES ON DATABASE postgres TO admin;
-

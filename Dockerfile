@@ -2,20 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System dependencies (NO Java needed for Kafka Python client)
 RUN apt-get update && apt-get install -y \
-    gcc \
-    build-essential \
-    libpq-dev \
-    curl \
-    netcat-openbsd \
+    gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY app/ ./app/
+COPY ml/ ./ml/
 
 EXPOSE 8000
 
-CMD ["bash", "./start_api.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

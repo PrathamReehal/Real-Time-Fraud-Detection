@@ -35,8 +35,8 @@ Thumbs.db
 
 # ML Models (if large)
 # *.pkl
-# *.h5
-# *.pt
+*.h5
+*.pt
 
 # Docker
 .dockerignore
@@ -48,6 +48,3 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
-
-*.cpython-312.pyc
-

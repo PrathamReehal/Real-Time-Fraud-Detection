@@ -1,3 +1,4 @@
+"""Domain models."""
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -15,7 +16,7 @@ class Transaction:
     oldbalance_dest: float
     newbalance_dest: float
     timestamp: datetime
-    transaction_id: Optional[int] = None
+    id: Optional[int] = None
 
 
 @dataclass
@@ -30,8 +31,8 @@ class Alert:
 
 
 @dataclass
-class FraudPrediction:
+class Prediction:
     transaction_id: Optional[int]
-    fraud_probability: float
+    probability: float
     is_fraud: bool
     timestamp: datetime
